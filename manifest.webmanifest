@@ -1,0 +1,16 @@
+{
+    "name": "Produção Offline",
+    "short_name": "Produção",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#4a4b4a",
+    "icons": [
+      {
+        "src": "static/icongold.png",
+        "sizes": "192x192",
+        "type": "image/png"
+      }
+    ]
+  }
+  

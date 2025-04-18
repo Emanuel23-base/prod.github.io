@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Formulário de Produção Offline</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <style>
+        .header-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .logo {
+            max-height: 80px;
+        }
+        .page-title {
+            text-align: center;
+            flex-grow: 1;
+            color: #4a4b4a;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        }
+        .btn-danger {
+            padding: 0.375rem 0.75rem;
+        }
+        .autocomplete-suggestions {
+            position: absolute;
+            border: 1px solid #ccc;
+            background-color: white;
+            z-index: 1000;
+            max-height: 150px;
+            overflow-y: auto;
+            border-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+        }
+        .autocomplete-suggestions div {
+            padding: 5px;
+            cursor: pointer;
+        }
+        .autocomplete-suggestions div:hover {
+            background-color: #f0f0f0;
+        }
+        #sync-status {
+            transition: all 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="header-container">
+            <img src="static/icongold.png" alt="Logo" class="logo">
+            <h2 class="page-title">Controle Diário de Produção Offline</h2>
+            <div style="width: 80px;"></div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">Informação Geral</div>
+            <div class="card-body">
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label>Responsável</label>
+                        <input type="text" class="form-control" id="responsavel" required>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Data</label>
+                        <input type="date" class="form-control" id="data" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-4">
+                        <label>Cultura</label>
+                        <select class="form-control" id="cultura" onchange="filtrarSetoresAtividades()" required>
+                            <option value="">Selecione uma cultura</option>
+                            <option value="MANGA">MANGA</option>
+                            <option value="UVA">UVA</option>
+                        </select>
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label>Setor</label>
+                        <select class="form-control" id="setor" required>
+                            <option value="">Selecione um setor</option>
+                        </select>
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label>Atividade</label>
+                        <select class="form-control" id="atividade" required>
+                            <option value="">Selecione uma atividade</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header bg-success text-white">Produção</div>
+            <div class="card-body">
+                <table class="table" id="tabela-producao">
+                    <thead>
+                        <tr>
+                            <th>Colaborador</th>
+                            <th>Produção</th>
+                            <th>H. Início</th>
+                            <th>H. Término</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="corpo-tabela"></tbody>
+                </table>
+                <button class="btn btn-secondary" onclick="adicionarLinha()">+ Adicionar Linha</button>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Observação:</label>
+            <textarea class="form-control" name="observacao"></textarea>
+        </div>
+
+        <div class="button-group">
+            <button class="btn btn-primary" onclick="salvarDados()">Salvar Local</button>
+            <button class="btn btn-info" onclick="sincronizarDados()" id="btn-sync">
+                <i class="fas fa-sync"></i> Sincronizar
+            </button>
+        </div>
+        
+        <div id="sync-status" class="mt-3"></div>
+    </div>
+
+    <script>
+        // Configuração do SheetMonkey
+        const SHEETMONKEY_URL = 'https://api.sheetmonkey.io/form/xA3kKNgJKVx514FeGEj1Kq';
+        let isOnline = navigator.onLine;
+        let offlineData = JSON.parse(localStorage.getItem('offlineProductions') || '[]');
+        let colaboradoresLista = [];
+
+        // Dados estáticos
+        const setoresPorCultura = {
+            "MANGA": ["S", "I", "G", "P", "R1", "R2", "J1", "J2", "E1", "E2", "O", "D2", "D1", "D3", "D4", "X1", "F", "X2", "J5", "H", "K7", "K8", "K4", "K5", "K6", "K1", "K2", "K3", "Q"],
+            "UVA": ["1.1B", "1.1A", "1.2B", "1.2A", "2.1B", "2.1A", "2.2B", "2.2A", "2.1A", "3.1", "3.2", "4.1A", "4.1B", "4.2A", "4.2B", "4.3A", "4.3B"]
+        };
+
+        const atividadesPorCultura = {
+            "MANGA": ["CAULIM", "PODA DE ABERTURA", "PODA PÓS COLHEITA", "ESCORAMENTO AERIO", "ROÇO STHIL", "COLHEITA", "BATEDORES DE CAIXAS", "CAVAR SISTEMA DE IRRIGAÇÃO", "RETIRADA DE BUCHA", "RETIRADA DE INÓCULOS", "PODA DE LIMPEZA", "ROÇO MANUAL", "IRRIGAÇÃO", "RETIRADA DE BROTO","ESCORA"],
+            "UVA": ["PODA", "AMARRAÇÃO 1º","AMARRAÇÃO 2º", "DESBROTA", "APOIO DE PACKING", "EMBALAMENTO (PRODUÇÃO)", "COLHEITA", "DESFOLHA", "LIVRAMENTO DE CACHOS", "RALEIO", "SELEÇÃO DE CACHOS"]
+        };
+
+        // Funções principais
+        function filtrarSetoresAtividades() {
+            const cultura = document.getElementById('cultura').value;
+            const setorSelect = document.getElementById('setor');
+            const atividadeSelect = document.getElementById('atividade');
+
+            setorSelect.innerHTML = '<option value="">Selecione um setor</option>';
+            atividadeSelect.innerHTML = '<option value="">Selecione uma atividade</option>';
+
+            if (!cultura) return;
+
+            setoresPorCultura[cultura].forEach(setor => {
+                const option = document.createElement('option');
+                option.value = setor;
+                option.textContent = setor;
+                setorSelect.appendChild(option);
+            });
+
+            atividadesPorCultura[cultura].forEach(atividade => {
+                const option = document.createElement('option');
+                option.value = atividade;
+                option.textContent = atividade;
+                atividadeSelect.appendChild(option);
+            });
+        }
+
+        function adicionarLinha() {
+            const tbody = document.getElementById('corpo-tabela');
+            const novaLinha = `
+                <tr>
+                    <td style="position: relative;">
+                        <input type="text" class="form-control colaborador" required>
+                    </td>
+                    <td><input type="number" class="form-control producao" step="0.1" required></td>
+                    <td><input type="time" class="form-control h-inicio" required></td>
+                    <td><input type="time" class="form-control h-termino" required></td>
+                    <td><button class="btn btn-danger" onclick="removerLinha(this)"><i class="fas fa-trash-alt"></i></button></td>
+                </tr>
+            `;
+            tbody.insertAdjacentHTML('beforeend', novaLinha);
+        }
+
+        function removerLinha(botao) {
+            botao.closest('tr').remove();
+        }
+
+        // Sistema de armazenamento e sincronização
+        function transformarDados(dados) {
+            return dados.producao.map(producao => ({
+                Responsável: dados.info_geral.responsavel,
+                Data: dados.info_geral.data,
+                Cultura: dados.info_geral.cultura,
+                Setor: dados.info_geral.setor,
+                Atividade: dados.info_geral.atividade,
+                Observação: dados.info_geral.observacao,
+                Colaborador: producao.colaborador,
+                Produção: parseFloat(producao.producao),
+                Hora_Início: producao.h_inicio,
+                Hora_Término: producao.h_termino
+            }));
+        }
+
+        async function salvarDados() {
+            const dadosBrutos = coletarDados();
+            const dadosTransformados = transformarDados(dadosBrutos);
+            
+            if (isOnline) {
+                try {
+                    await enviarParaSheetMonkey(dadosTransformados);
+                    limparFormulario();
+                } catch (error) {
+                    salvarLocalmente(dadosTransformados);
+                }
+            } else {
+                salvarLocalmente(dadosTransformados);
+            }
+        }
+
+        async function enviarParaSheetMonkey(dados) {
+            try {
+                const responses = await Promise.all(
+                    dados.map(registro => 
+                        fetch(SHEETMONKEY_URL, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(registro)
+                        })
+                    )
+                );
+
+                if (responses.every(r => r.ok)) {
+                    alert('Dados sincronizados com sucesso!');
+                    return true;
+                }
+                throw new Error('Alguns registros falharam');
+            } catch (error) {
+                alert('Erro ao enviar: ' + error.message);
+                throw error;
+            }
+        }
+
+        function salvarLocalmente(dados) {
+            offlineData.push(...dados);
+            localStorage.setItem('offlineProductions', JSON.stringify(offlineData));
+            alert(dados.length + ' registro(s) salvo(s) localmente!');
+            limparFormulario();
+        }
+
+        async function sincronizarDados() {
+            if (!isOnline) {
+                alert('Sem conexão com a internet');
+                return;
+            }
+
+            while (offlineData.length > 0) {
+                const data = offlineData[0];
+                try {
+                    await enviarParaSheetMonkey([data]);
+                    offlineData.shift();
+                    localStorage.setItem('offlineProductions', JSON.stringify(offlineData));
+                } catch (error) {
+                    alert('Erro na sincronização: ' + error.message);
+                    break;
+                }
+            }
+        }
+
+        function coletarDados() {
+            return {
+                info_geral: {
+                    responsavel: document.getElementById('responsavel').value,
+                    data: document.getElementById('data').value,
+                    cultura: document.getElementById('cultura').value,
+                    setor: document.getElementById('setor').value,
+                    atividade: document.getElementById('atividade').value,
+                    observacao: document.querySelector('textarea[name="observacao"]').value
+                },
+                producao: Array.from(document.querySelectorAll('#corpo-tabela tr')).map(linha => ({
+                    colaborador: linha.querySelector('.colaborador').value,
+                    producao: linha.querySelector('.producao').value,
+                    h_inicio: linha.querySelector('.h-inicio').value,
+                    h_termino: linha.querySelector('.h-termino').value
+                }))
+            };
+        }
+
+        function limparFormulario() {
+            document.getElementById('responsavel').value = '';
+            document.getElementById('data').value = '';
+            document.getElementById('cultura').value = '';
+            document.getElementById('setor').innerHTML = '<option value="">Selecione um setor</option>';
+            document.getElementById('atividade').innerHTML = '<option value="">Selecione uma atividade</option>';
+            document.querySelector('textarea[name="observacao"]').value = '';
+            document.getElementById('corpo-tabela').innerHTML = '';
+            adicionarLinha();
+        }
+
+        // Monitorar status da conexão
+        window.addEventListener('online', () => {
+            isOnline = true;
+            document.getElementById('btn-sync').classList.remove('btn-secondary');
+            document.getElementById('btn-sync').classList.add('btn-info');
+        });
+
+        window.addEventListener('offline', () => {
+            isOnline = false;
+            document.getElementById('btn-sync').classList.remove('btn-info');
+            document.getElementById('btn-sync').classList.add('btn-secondary');
+        });
+
+        // Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registrado com sucesso');
+                    })
+                    .catch(err => {
+                        console.log('Falha no registro do ServiceWorker:', err);
+                    });
+            });
+        }
+
+        // Inicialização
+        document.addEventListener('DOMContentLoaded', () => {
+            adicionarLinha();
+            document.getElementById('data').value = new Date().toISOString().split('T')[0];
+            document.getElementById('btn-sync').classList.toggle('btn-info', isOnline);
+            document.getElementById('btn-sync').classList.toggle('btn-secondary', !isOnline);
+        });
+    </script>
+</body>
+</html>
